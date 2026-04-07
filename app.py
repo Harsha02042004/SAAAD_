@@ -610,7 +610,7 @@ def explain_score(c):
 # =========================
 # DOWNLOAD ROUTE
 # =========================
-THREED_DIR = r"C:\Users\Harsha\Desktop\Sialic_Acid\mol2\3D"
+THREED_DIR = os.path.join("mol2", "3D")
 
 @app.route("/download/<fmt>/<int:cid>")
 def download_structure(fmt, cid):
