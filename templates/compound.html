@@ -1,0 +1,626 @@
+{% extends "base.html" %}
+{% block content %}
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1"></script>
+<script src="https://3dmol.org/build/3Dmol-min.js"></script>
+
+<style>
+.card { border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+.table td { padding: 10px 14px; }
+#viewer3d { position: relative; z-index: 1; }
+.similar-card { padding:10px; background:#f8f9fa; border-radius:8px; text-decoration:none; color:inherit; display:flex; }
+.similar-score { padding:6px 10px; border-radius:8px; color:white; }
+.similar-score.high   { background:#28a745; }
+.similar-score.medium { background:#ffc107; color:black; }
+.similar-score.low    { background:#6c757d; }
+
+/* ── Loading overlay shared by all chart wrappers ── */
+.chart-wrapper {
+  position: relative;
+}
+.chart-loader {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255,255,255,0.92);
+  border-radius: 10px;
+  z-index: 20;
+  gap: 12px;
+  transition: opacity 0.3s ease;
+}
+.chart-loader.hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+/* Animated skeleton pulse bar */
+.skeleton-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  height: 48px;
+}
+.skeleton-bars span {
+  width: 10px;
+  border-radius: 4px 4px 0 0;
+  background: linear-gradient(180deg, #c8d8f0, #e8eef8);
+  animation: barPulse 1.1s ease-in-out infinite;
+}
+.skeleton-bars span:nth-child(1) { height: 60%; animation-delay: 0s; }
+.skeleton-bars span:nth-child(2) { height: 85%; animation-delay: 0.1s; }
+.skeleton-bars span:nth-child(3) { height: 45%; animation-delay: 0.2s; }
+.skeleton-bars span:nth-child(4) { height: 100%; animation-delay: 0.3s; }
+.skeleton-bars span:nth-child(5) { height: 70%; animation-delay: 0.4s; }
+
+/* Spinning radar polygon for radar loader */
+.radar-spin {
+  width: 48px;
+  height: 48px;
+  border: 3px solid #dde6f5;
+  border-top-color: #4a90d9;
+  border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+}
+
+/* Scatter dots for PCA loader */
+.scatter-dots {
+  position: relative;
+  width: 60px;
+  height: 48px;
+}
+.scatter-dots span {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  animation: dotPop 1.4s ease-in-out infinite;
+}
+.scatter-dots span:nth-child(1) { background:#4a90d9; top:30px; left:4px;  animation-delay:0s; }
+.scatter-dots span:nth-child(2) { background:#e07b54; top:8px;  left:18px; animation-delay:0.15s; }
+.scatter-dots span:nth-child(3) { background:#5cb85c; top:22px; left:34px; animation-delay:0.3s; }
+.scatter-dots span:nth-child(4) { background:#f0ad4e; top:4px;  left:46px; animation-delay:0.45s; }
+.scatter-dots span:nth-child(5) { background:#9b59b6; top:36px; left:26px; animation-delay:0.6s; }
+
+.loader-label {
+  font-size: 0.78rem;
+  color: #7a8fa8;
+  letter-spacing: 0.04em;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes barPulse {
+  0%,100% { opacity: 0.45; transform: scaleY(0.8); }
+  50%      { opacity: 1;    transform: scaleY(1); }
+}
+@keyframes dotPop {
+  0%,100% { transform: scale(0.7); opacity: 0.4; }
+  50%      { transform: scale(1.2); opacity: 1; }
+}
+</style>
+
+<div class="container-fluid py-4" style="max-width:1400px;">
+
+  <!-- HEADER -->
+  <div class="mb-4">
+    <h2 class="fw-bold mb-1">{{ c.entry_name }}</h2>
+    <div class="text-muted small">{{ c.molecular_formula }}</div>
+  </div>
+
+  <div class="row g-4">
+
+    <!-- LEFT PANEL -->
+    <div class="col-lg-3 col-xl-3">
+
+      <!-- 2D / 3D TOGGLE -->
+      <div class="card shadow-sm mb-3 p-2 position-relative">
+        <div class="d-flex justify-content-center gap-2 mb-2 position-relative" style="z-index:10;">
+          <button id="btn2d" onclick="show2D()" class="btn btn-sm btn-primary">2D</button>
+          <button id="btn3d" onclick="show3D()" class="btn btn-sm btn-outline-success">3D</button>
+        </div>
+
+        <div id="view2d">
+          <img src="{{ url_for('static', filename=c.png_path) }}"
+               class="img-fluid" style="object-fit:contain;">
+        </div>
+
+        <div id="view3d" style="display:none;">
+          <div id="viewer3d" style="width:100%; height:300px;"></div>
+        </div>
+      </div>
+
+      <!-- DOWNLOAD -->
+      <div class="card p-2 mb-3 shadow-sm">
+        <div class="small text-muted text-center mb-2">Download</div>
+        <div class="d-flex gap-2">
+          <a href="/download/mol/{{ c.compound_id }}"  class="btn btn-sm btn-outline-primary w-100">MOL</a>
+          <a href="/download/sdf/{{ c.compound_id }}"  class="btn btn-sm btn-outline-success w-100">SDF</a>
+          <a href="/download/mol2/{{ c.compound_id }}" class="btn btn-sm btn-outline-secondary w-100">MOL2</a>
+        </div>
+      </div>
+
+      <!-- RANK -->
+      <div class="card p-3 mb-3 shadow-sm text-center">
+        <div class="small text-muted">Rank</div>
+        <div class="fw-bold fs-4">#{{ c.rank }}</div>
+      </div>
+
+      <!-- QUICK INSIGHTS -->
+      <div class="card p-3 mb-3 shadow-sm bg-light">
+        <h6>Quick Insights</h6>
+        <ul class="small mb-0">
+          <li>Confidence: {{ confidence_label }}</li>
+          <li>Scaffold detected</li>
+          <li class="{% if result.label == 'Drug-like' %}text-success{% elif result.label == 'Moderate' %}text-warning{% endif %}">
+            {{ result.label }}
+          </li>
+        </ul>
+      </div>
+
+      <!-- SCORE -->
+      {% set color =
+        'success' if result.label == 'Drug-like'
+        else 'warning' if result.label == 'Moderate'
+        else 'secondary'
+      %}
+
+      <div class="card p-3 shadow-sm">
+        <h6>Drug-likeness Score</h6>
+        <div class="fs-4 fw-bold">{{ score }}</div>
+
+        <div class="progress mt-2" style="height:8px;">
+          <div class="progress-bar bg-{{ color }}" style="width: {{ score * 100 }}%"></div>
+        </div>
+
+        <div class="small mt-2 mb-2">{{ confidence_label }}</div>
+
+        <div class="small text-muted">SMILES</div>
+        <div class="font-monospace small text-break mb-2">{{ c.smiles }}</div>
+
+        <div class="small text-muted">Murcko Scaffold</div>
+        <div class="font-monospace small text-break">
+          {{ c.scaffold if c.scaffold else "Not available" }}
+        </div>
+      </div>
+
+    </div>
+
+    <!-- RIGHT PANEL -->
+    <div class="col-lg-9 col-xl-9">
+
+      <div class="row g-4">
+
+        <!-- PROPERTIES TABLE -->
+        <div class="col-md-6">
+          <div class="card p-3 shadow-sm h-100">
+            <h6>Physicochemical Properties</h6>
+            <table class="table mb-0">
+              <thead class="table-light">
+                <tr><th>Property</th><th>Abbreviation</th><th>Value</th></tr>
+              </thead>
+              <tbody>
+                <tr><td>Molecular Weight</td><td>MW</td><td>{{ "%.2f"|format(c.molecular_weight) }}</td></tr>
+                <tr><td>Partition Coefficient (Octanol/Water)</td><td>LogP</td><td>{{ "%.2f"|format(c.logp) }}</td></tr>
+                <tr><td>Hydrogen Bond Donors</td><td>HBD</td><td>{{ "%.2f"|format(c.hbd) }}</td></tr>
+                <tr><td>Hydrogen Bond Acceptors</td><td>HBA</td><td>{{ "%.2f"|format(c.hba) }}</td></tr>
+                <tr><td>Topological Polar Surface Area</td><td>TPSA</td><td>{{ "%.2f"|format(c.tpsa) }}</td></tr>
+                <tr><td>Rotatable Bonds</td><td>RB</td><td>{{ "%.2f"|format(c.rotatable_bonds) }}</td></tr>
+                <tr><td>Fraction of sp³ Carbons</td><td>Fsp3</td><td>{{ "%.2f"|format(c.fsp3) }}</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- RADAR -->
+        <div class="col-md-6">
+          <div class="card p-3 shadow-sm h-100">
+            <h6>Physicochemical Profile</h6>
+            <div class="chart-wrapper" style="height:400px;">
+
+              <!-- Radar loading state -->
+              <div class="chart-loader" id="radarLoader">
+                <div class="radar-spin"></div>
+                <div class="loader-label">Building profile…</div>
+              </div>
+
+              <canvas id="radarChart" style="opacity:0; transition:opacity 0.4s;"></canvas>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- COMPOUND INTELLIGENCE -->
+      <div class="row mt-3">
+        <div class="col-12">
+          <div class="card p-3 shadow-sm">
+            <h6>🧠 Compound Intelligence</h6>
+            <div class="row text-center">
+              <div class="col-md-2">
+                <div class="small text-muted">Solubility</div>
+                <div class="fw-bold">{{ solubility }}</div>
+              </div>
+              <div class="col-md-2">
+                <div class="small text-muted">Permeability</div>
+                <div class="fw-bold">{{ permeability }}</div>
+              </div>
+              <div class="col-md-2">
+                <div class="small text-muted">BBB</div>
+                <div class="fw-bold">{{ bbb }}</div>
+              </div>
+              <div class="col-md-2">
+                <div class="small text-muted">Flexibility</div>
+                <div class="fw-bold">{{ flexibility }}</div>
+              </div>
+              <div class="col-md-2">
+                <div class="small text-muted">Size</div>
+                <div class="fw-bold">{{ size }}</div>
+              </div>
+            </div>
+
+            <!-- OVERALL ASSESSMENT -->
+            <div class="card p-3 shadow-sm mt-3">
+              <h6>🧠 Overall Assessment</h6>
+              <div class="fw-semibold mb-2">{{ summary }}</div>
+              <ul class="small mb-2">
+                {% for p in positives %}
+                  <li class="text-success">✔ {{ p }}</li>
+                {% endfor %}
+              </ul>
+              <ul class="small mb-0">
+                {% for concern in concerns %}
+                  <li class="text-warning">⚠ {{ concern }}</li>
+                {% endfor %}
+              </ul>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+
+  <!-- FULL WIDTH SECTION -->
+  <div class="row mt-4">
+    <div class="col-12">
+
+      <!-- CLUSTER INSIGHTS -->
+      <div class="card p-3 mb-3 shadow-sm">
+        <h5>Cluster Insights</h5>
+        {% for cluster_id, stats in cluster_summary.items() %}
+        <div class="mb-2">
+          <span style="color: {{ stats.color }}; font-weight:bold;">● Cluster {{ cluster_id }}</span>
+          <span class="text-muted">({{ stats.label }}) →
+            MW: {{ stats.MW }},
+            LogP: {{ stats.LogP }},
+            TPSA: {{ stats.TPSA }},
+            Flex: {{ stats.RB }}
+          </span>
+        </div>
+        {% endfor %}
+      </div>
+
+      <div class="small text-muted mb-2">
+        Total compounds: <b>{{ total_compounds }}</b>
+      </div>
+
+      <!-- PCA CHART -->
+      <h6>Chemical Space (PCA)</h6>
+      <div class="chart-wrapper" style="height:600px;">
+
+        <!-- PCA loading state -->
+        <div class="chart-loader" id="pcaLoader">
+          <div class="scatter-dots">
+            <span></span><span></span><span></span><span></span><span></span>
+          </div>
+          <div class="loader-label">Mapping chemical space…</div>
+        </div>
+
+        <canvas id="pcaChart" style="opacity:0; transition:opacity 0.4s;"></canvas>
+      </div>
+
+      <div id="compoundPanel" class="card p-3 mt-3 shadow-sm" style="display:none;"></div>
+
+      <!-- DRUG-LIKENESS RULES -->
+      <div class="card p-3 mb-3 shadow-sm mt-4">
+        <h5>Drug-likeness Rules</h5>
+        <table class="table">
+          {% for rule, data in rules.items() %}
+          <tr>
+            <td><b>{{ rule }}</b></td>
+            <td>
+              <span class="badge bg-{{ 'success' if data.status == 'PASS' else 'danger' }}">
+                {{ data.status }}
+              </span>
+            </td>
+            <td>{{ data.details }}</td>
+          </tr>
+          {% endfor %}
+        </table>
+      </div>
+
+      <!-- SIMILAR COMPOUNDS -->
+      <div class="card p-3 shadow-sm">
+        <h5>Similar Compounds</h5>
+
+        {% for s in similar_compounds %}
+        <a href="{{ url_for('compound_detail', cid=s.compound_id, slug=s.slug) }}"
+          class="similar-card d-flex justify-content-between align-items-start mb-2">
+
+          <div style="flex:1;">
+            <div class="fw-semibold">{{ s.entry_name }}</div>
+            <div class="small text-muted">Score: {{ s.score }} | Rank #{{ s.rank }}</div>
+            <ul class="small mt-2 mb-0">
+              {% for e in s.explanation %}
+                <li>{{ e }}</li>
+              {% endfor %}
+            </ul>
+          </div>
+
+          <div style="display:flex; gap:20px; align-items:center; margin:10px 20px;">
+            <img src="{{ url_for('static', filename=s.highlight_1 if s.highlight_1 else s.png_path) }}"
+                style="max-height:180px; border-radius:6px;">
+            <span style="font-weight:bold;">vs</span>
+            <img src="{{ url_for('static', filename=s.highlight_2 if s.highlight_2 else c.png_path) }}"
+                style="max-height:180px; border-radius:6px;">
+          </div>
+
+          <div class="text-end" style="min-width:100px;">
+            <div class="similar-score
+              {% if s.final_similarity > 0.85 %}high
+              {% elif s.final_similarity > 0.7 %}medium
+              {% else %}low{% endif %}">
+              {{ "%.3f"|format(s.final_similarity) }}
+            </div>
+            <div class="small text-muted mt-1">
+              T: {{ "%.2f"|format(s.tanimoto) }} |
+              P: {{ "%.2f"|format(s.prop_sim) }} |
+              MCS: {{ "%.2f"|format(s.mcs_score) }}
+            </div>
+          </div>
+
+        </a>
+        {% endfor %}
+      </div>
+
+    </div>
+  </div>
+
+</div>
+
+<!-- ========================= -->
+<!-- JS -->
+<!-- ========================= -->
+<script>
+let viewer;
+
+/* ── helpers ── */
+function revealChart(canvasId, loaderId) {
+  const canvas = document.getElementById(canvasId);
+  const loader = document.getElementById(loaderId);
+  if (canvas) canvas.style.opacity = "1";
+  if (loader) loader.classList.add("hidden");
+  // remove from DOM after fade completes so it can't block clicks
+  if (loader) setTimeout(() => loader.remove(), 350);
+}
+
+function showChartError(loaderId, msg) {
+  const loader = document.getElementById(loaderId);
+  if (!loader) return;
+  loader.innerHTML = `
+    <svg width="32" height="32" viewBox="0 0 24 24" fill="none"
+         stroke="#d9534f" stroke-width="2" stroke-linecap="round">
+      <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/>
+      <line x1="12" y1="16" x2="12.01" y2="16"/>
+    </svg>
+    <div class="loader-label" style="color:#d9534f;">${msg}</div>`;
+}
+
+function show2D() {
+  document.getElementById("view2d").style.display = "block";
+  document.getElementById("view3d").style.display = "none";
+  document.getElementById("btn2d").className = "btn btn-sm btn-primary";
+  document.getElementById("btn3d").className = "btn btn-sm btn-outline-success";
+}
+
+function show3D() {
+  document.getElementById("view2d").style.display = "none";
+  document.getElementById("view3d").style.display = "block";
+  document.getElementById("btn3d").className = "btn btn-sm btn-success";
+  document.getElementById("btn2d").className = "btn btn-sm btn-outline-primary";
+}
+
+function showCompoundGroup(point) {
+  let panel = document.getElementById("compoundPanel");
+  panel.style.display = "block";
+  let html = `<h5>${point.count} compounds in this region</h5><ul>`;
+  point.compounds.forEach(comp => {
+    html += `<li><a href="/compound/${comp.compound_id}/${comp.slug}">${comp.name}</a></li>`;
+  });
+  html += "</ul>";
+  panel.innerHTML = html;
+}
+
+document.addEventListener("DOMContentLoaded", function () {
+
+  function normalize(val, min, max) {
+    if (max === min) return 0;
+    return (val - min) / (max - min);
+  }
+
+  /* ── 3D VIEWER ── */
+  try {
+    let el = document.getElementById("viewer3d");
+    if (el) {
+      viewer = $3Dmol.createViewer(el, { backgroundColor: "white" });
+      fetch("/download/sdf/{{ c.compound_id }}")
+        .then(r => r.text())
+        .then(data => {
+          viewer.addModel(data, "sdf");
+          viewer.setStyle({}, { stick: { radius: 0.15 }, sphere: { scale: 0.25 } });
+          viewer.zoomTo();
+          viewer.render();
+        });
+    }
+  } catch(e) { console.error("3D viewer error:", e); }
+
+  /* ── RADAR CHART ── */
+  try {
+    let canvas = document.getElementById("radarChart");
+    if (canvas) {
+      new Chart(canvas.getContext('2d'), {
+        type: 'radar',
+        data: {
+          labels: ["MW","LogP","HBD","HBA","TPSA","Flex","Fsp3"],
+          datasets: [
+            {
+              label: "Compound",
+              data: [
+                normalize({{ c.molecular_weight or 0 }}, {{ ranges.mw[0] }},   {{ ranges.mw[1] }}),
+                normalize({{ c.logp or 0 }},             {{ ranges.logp[0] }}, {{ ranges.logp[1] }}),
+                normalize({{ c.hbd or 0 }},              {{ ranges.hbd[0] }},  {{ ranges.hbd[1] }}),
+                normalize({{ c.hba or 0 }},              {{ ranges.hba[0] }},  {{ ranges.hba[1] }}),
+                normalize({{ c.tpsa or 0 }},             {{ ranges.tpsa[0] }}, {{ ranges.tpsa[1] }}),
+                normalize({{ c.rotatable_bonds or 0 }},  {{ ranges.rb[0] }},   {{ ranges.rb[1] }}),
+                normalize({{ c.fsp3 or 0 }},             {{ ranges.fsp3[0] }}, {{ ranges.fsp3[1] }})
+              ],
+              backgroundColor: "rgba(54,162,235,0.2)",
+              borderColor: "rgba(54,162,235,1)",
+              borderWidth: 2,
+              pointBackgroundColor: "rgba(54,162,235,1)"
+            },
+            {
+              label: "Top Compounds Reference",
+              data: {{ reference_profile | tojson }},
+              borderColor: "red",
+              borderWidth: 2,
+              borderDash: [5,5],
+              fill: false,
+              pointRadius: 0
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: {
+            onComplete: () => revealChart("radarChart", "radarLoader")
+          },
+          scales: { r: { min: 0, max: 1 } }
+        }
+      });
+    }
+  } catch(e) {
+    console.error("Radar error:", e);
+    showChartError("radarLoader", "Could not render chart");
+  }
+
+  /* ── PCA CHART ── */
+  try {
+    let grouped = {{ (pca_grouped or []) | tojson }};
+
+    if (grouped && grouped.length > 0) {
+
+      let clusterMap = {};
+      grouped.forEach(p => {
+        if (!clusterMap[p.cluster]) clusterMap[p.cluster] = [];
+        clusterMap[p.cluster].push({
+          x: p.x, y: p.y,
+          r: 5 + Math.sqrt(p.count) * 3,
+          count: p.count,
+          compounds: p.compounds,
+          color: p.color
+        });
+      });
+
+      let currentId = {{ c.compound_id }};
+
+      let datasets = Object.keys(clusterMap).map(cid => ({
+        label: "Cluster " + cid,
+        data: clusterMap[cid].map(p => ({ ...p })),
+        backgroundColor: function(ctx) {
+          let p = ctx.raw;
+          if (!p) return clusterMap[cid][0].color;
+          let isCurrent = p.compounds.some(comp => comp.compound_id === currentId);
+          return isCurrent ? "#FFD700" : clusterMap[cid][0].color;
+        },
+        legendColor: clusterMap[cid][0].color,
+        borderColor: "black",
+        borderWidth: 1
+      }));
+
+      let canvas2 = document.getElementById("pcaChart");
+      if (canvas2) {
+        new Chart(canvas2.getContext('2d'), {
+          type: 'bubble',
+          data: { datasets: datasets },
+          options: {
+            parsing: false,
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: {
+              onComplete: () => revealChart("pcaChart", "pcaLoader")
+            },
+            plugins: {
+              tooltip: {
+                callbacks: {
+                  label: function(ctx) {
+                    let p = ctx.raw;
+                    return p.count === 1 ? p.compounds[0].name : p.count + " compounds";
+                  }
+                }
+              }
+            },
+            scales: {
+              x: {
+                min: -4, max: 8,
+                title: { display: true, text: "PC1" },
+                grid: {
+                  color: ctx => ctx.tick.value === 0 ? "#999" : "#f0f0f0",
+                  lineWidth: ctx => ctx.tick.value === 0 ? 1 : 0.5
+                }
+              },
+              y: {
+                min: -8, max: 6,
+                title: { display: true, text: "PC2" },
+                grid: {
+                  color: ctx => ctx.tick.value === 0 ? "#999" : "#f0f0f0",
+                  lineWidth: ctx => ctx.tick.value === 0 ? 1 : 0.5
+                }
+              }
+            },
+            onClick: function(evt, elements) {
+              if (!elements.length) return;
+              let point = elements[0].element.$context.raw;
+              if (point.count === 1) {
+                let comp = point.compounds[0];
+                window.location.href = "/compound/" + comp.compound_id + "/" + comp.slug;
+              } else {
+                showCompoundGroup(point);
+              }
+            }
+          }
+        });
+      }
+    } else {
+      /* No PCA data – dismiss loader gracefully */
+      const loader = document.getElementById("pcaLoader");
+      if (loader) {
+        loader.innerHTML = `<div class="loader-label">No PCA data available</div>`;
+      }
+    }
+
+  } catch(e) {
+    console.error("PCA error:", e);
+    showChartError("pcaLoader", "Could not render chart");
+  }
+
+});
+</script>
+
+{% endblock %}

@@ -1,0 +1,217 @@
+{% extends "base.html" %}
+{% block title %}Contact - SAAAD{% endblock %}
+
+{% block content %}
+
+<style>
+/* Card hover */
+.card {
+    transition: all 0.2s ease;
+}
+.card:hover {
+    transform: translateY(-4px);
+}
+
+/* Ensure consistent spacing */
+.card-body p {
+    min-height: 60px;
+}
+
+/* Image handling (NO CROPPING) */
+.profile-img {
+    max-height: 220px;
+    width: 100%;
+    object-fit: contain;
+    background: #f8f9fa;
+    padding: 10px;
+}
+
+.lead-img {
+    max-height: 260px;
+    width: 100%;
+    object-fit: contain;
+    background: #f8f9fa;
+    padding: 10px;
+}
+</style>
+
+<div class="container py-5" style="max-width: 1200px;">
+
+    <!-- HEADER -->
+    <div class="text-center mb-5">
+        <h2 class="fw-bold">Contact Us</h2>
+        <p class="text-muted">
+            Meet the team behind SAAAD - Sialic Acid Analogs ADME Prediction Database
+        </p>
+    </div>
+
+    <!-- ========================= -->
+    <!-- LEAD RESEARCHER -->
+    <!-- ========================= -->
+    <div class="row justify-content-center mb-5">
+        <div class="col-md-5">
+
+            <div class="card shadow-sm text-center border-0">
+
+                <img src="{{ url_for('static', filename='images/image1.jpg') }}"
+                     class="lead-img rounded-top"
+                     alt="Lead Contact">
+
+                <div class="card-body py-3 px-3">
+                    <h5 class="fw-bold mb-1">Dr. J Jino Blessy</h5>
+
+                    <p class="small mb-2" style="line-height:1.3;">
+                        Assistant Professor<br>
+                        Department of Bioinformatics<br>
+                        Sri Ramachandra Institute of Higher Education and Research
+                    </p>
+
+                    <p class="small mb-1"><b>Email:</b></p>
+                    <a class="small" href="mailto:jinoblessy@sret.edu.in">jinoblessy@sret.edu.in</a><br>
+                    <a class="small" href="mailto:jinoblessy@sriramachandra.edu.in">jinoblessy@sriramachandra.edu.in</a><br>
+                    <a class="small" href="mailto:blessyjino@gmail.com">blessyjino@gmail.com</a>
+                </div>
+
+            </div>
+
+        </div>
+    </div>
+
+    <!-- ========================= -->
+    <!-- TEAM -->
+    <!-- ========================= -->
+    <div class="row g-3">
+
+        <!-- Kavya -->
+        <div class="col-md-3">
+            <div class="card shadow-sm text-center border-0 h-100">
+
+                <img src="{{ url_for('static', filename='images/image2.jpeg') }}"
+                     class="profile-img"
+                     alt="Kavya">
+
+                <div class="card-body py-3 px-2">
+                    <h6 class="fw-bold mb-1">C. Kavya Sree</h6>
+
+                    <p class="small mb-2" style="line-height:1.3;">
+                        B.Sc Bioinformatics<br>
+                        Sri Ramachandra Institute
+                    </p>
+
+                    <a class="small text-primary" data-bs-toggle="collapse" href="#kavya">
+                        View Details
+                    </a>
+
+                    <div class="collapse mt-2 small" id="kavya">
+                        Department of Bioinformatics<br>
+                        Sri Ramachandra Faculty of Engineering and Technology<br>
+                        Sri Ramachandra Institute of Higher Education and Research<br>
+                        <a href="mailto:e6122004@sret.edu.in">e6122004@sret.edu.in</a><br>
+                        <a href="mailto:ksree9909@gmail.com">ksree9909@gmail.com</a>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- Chethana -->
+        <div class="col-md-3">
+            <div class="card shadow-sm text-center border-0 h-100">
+
+                <img src="{{ url_for('static', filename='images/image3.jpeg') }}"
+                     class="profile-img"
+                     alt="Chethana">
+
+                <div class="card-body py-3 px-2">
+                    <h6 class="fw-bold mb-1">Khambham Chethana</h6>
+
+                    <p class="small mb-2" style="line-height:1.3;">
+                        B.Sc Bioinformatics<br>
+                        Sri Ramachandra Institute
+                    </p>
+
+                    <a class="small text-primary" data-bs-toggle="collapse" href="#chethana">
+                        View Details
+                    </a>
+
+                    <div class="collapse mt-2 small" id="chethana">
+                        Department of Bioinformatics<br>
+                        Sri Ramachandra Faculty of Engineering and Technology<br>
+                        Sri Ramachandra Institute of Higher Education and Research<br>
+                        <a href="mailto:e6122001@sret.edu.in">e6122001@sret.edu.in</a><br>
+                        <a href="mailto:khambhamchethanareddy17@gmail.com">khambhamchethanareddy17@gmail.com</a>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- Latha -->
+        <div class="col-md-3">
+            <div class="card shadow-sm text-center border-0 h-100">
+
+                <img src="{{ url_for('static', filename='images/image4.jpeg') }}"
+                     class="profile-img"
+                     alt="Latha">
+
+                <div class="card-body py-3 px-2">
+                    <h6 class="fw-bold mb-1">Latha</h6>
+
+                    <p class="small mb-2" style="line-height:1.3;">
+                        M.Sc Bioinformatics<br>
+                        Sri Ramachandra Institute
+                    </p>
+
+                    <a class="small text-primary" data-bs-toggle="collapse" href="#latha">
+                        View Details
+                    </a>
+
+                    <div class="collapse mt-2 small" id="latha">
+                        Department of Bioinformatics<br>
+                        Sri Ramachandra Faculty of Engineering and Technology<br>
+                        Sri Ramachandra Institute of Higher Education and Research<br>
+                        <a href="mailto:e8122003@sret.edu.in">e8122003@sret.edu.in</a><br>
+                        <a href="mailto:lathamythili2000@gmail.com">lathamythili2000@gmail.com</a>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- Harsha -->
+        <div class="col-md-3">
+            <div class="card shadow-sm text-center border-0 h-100">
+
+                <img src="{{ url_for('static', filename='images/image5.jpg') }}"
+                     class="profile-img"
+                     alt="Harsha">
+
+                <div class="card-body py-3 px-2">
+                    <h6 class="fw-bold mb-1">Harshavardhan Anandalakshmanan</h6>
+
+                    <p class="small mb-2" style="line-height:1.3;">
+                        Biomedical Sciences<br>
+                        Sri Ramachandra Institute
+                    </p>
+
+                    <a class="small text-primary" data-bs-toggle="collapse" href="#harsha">
+                        View Details
+                    </a>
+
+                    <div class="collapse mt-2 small" id="harsha">
+                        Department of Biomedical Sciences<br>
+                        Sri Ramachandra Faculty of Biomedical Sciences and Technology<br>
+                        Sri Ramachandra Institute of Higher Education and Research<br>
+                        <a href="mailto:b0122068@sriher.edu.in">b0122068@sriher.edu.in</a><br>
+                        <a href="mailto:ananh012.319@gmail.com">ananh012.319@gmail.com</a>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+    </div>
+
+</div>
+
+{% endblock %}

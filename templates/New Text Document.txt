@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+{% block title %}Contact - SialicDB{% endblock %}
+
+{% block content %}
+
+<div class="container py-5" style="max-width: 1200px;">
+
+    <!-- HEADER -->
+    <div class="text-center mb-5">
+        <h2 class="fw-bold">Contact Us</h2>
+        <p class="text-muted">
+            Meet the team behind the Sialic Acid Database
+        </p>
+    </div>
+
+    <!-- ========================= -->
+    <!-- LEAD CONTACT -->
+    <!-- ========================= -->
+    <div class="row justify-content-center mb-5">
+        <div class="col-md-8">
+            <div class="card shadow-sm text-center border-0">
+                <img src="{{ url_for('static', filename='images/image1.jpeg') }}" 
+                     class="img-fluid rounded-top" 
+                     alt="Lead Contact">
+
+                <div class="card-body">
+                    <h5 class="fw-bold">Dr. J Jino Blessy</h5>
+                    <p class="mb-2">
+                        Assistant Professor<br>
+                        Department of Bioinformatics<br>
+                        Sri Ramachandra Institute of Higher Education and Research
+                    </p>
+
+                    <p class="mb-1"><b>Email:</b></p>
+                    <a href="mailto:jinoblessy@sret.edu.in">jinoblessy@sret.edu.in</a><br>
+                    <a href="mailto:jinoblessy@sriramachandra.edu.in">jinoblessy@sriramachandra.edu.in</a><br>
+                    <a href="mailto:blessyjino@gmail.com">blessyjino@gmail.com</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========================= -->
+    <!-- TEAM ROW 1 -->
+    <!-- ========================= -->
+    <div class="row g-4 mb-4">
+
+        <!-- Kavya -->
+        <div class="col-md-6">
+            <div class="card shadow-sm text-center border-0 h-100">
+                <img src="{{ url_for('static', filename='images/image2.jpg') }}" class="card-img-top" alt="Kavya">
+                <div class="card-body">
+                    <h5 class="fw-bold">C. Kavya Sree</h5>
+                    <p>
+                        B.Sc Bioinformatics <br>
+                        Department of Bioinformatics<br>
+                        Sri Ramachandra Faculty of Engineering and Technology<br>
+                        Sri Ramachandra Institute of Higher Education and Research
+                    </p>
+                    <b>Email:</b><br>
+                    <a href="mailto:e6122004@sret.edu.in">e6122004@sret.edu.in</a><br>
+                    <a href="mailto:ksree9909@gmail.com">ksree9909@gmail.com</a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Chethana -->
+        <div class="col-md-6">
+            <div class="card shadow-sm text-center border-0 h-100">
+                <img src="{{ url_for('static', filename='images/image3.jpeg') }}" class="card-img-top" alt="Chethana">
+                <div class="card-body">
+                    <h5 class="fw-bold">Khambham Chethana</h5>
+                    <p>
+                        B.Sc Bioinformatics <br>
+                        Department of Bioinformatics<br>
+                        Sri Ramachandra Faculty of Engineering and Technology<br>
+                        Sri Ramachandra Institute of Higher Education and Research
+                    </p>
+                    <b>Email:</b><br>
+                    <a href="mailto:e6122001@sret.edu.in">e6122001@sret.edu.in</a><br>
+                    <a href="mailto:khambhamchethanareddy17@gmail.com">khambhamchethanareddy17@gmail.com</a>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- ========================= -->
+    <!-- TEAM ROW 2 -->
+    <!-- ========================= -->
+    <div class="row g-4">
+
+        <!-- Latha -->
+        <div class="col-md-6">
+            <div class="card shadow-sm text-center border-0 h-100">
+                <img src="{{ url_for('static', filename='images/image4.jpeg') }}" class="card-img-top" alt="Latha">
+                <div class="card-body">
+                    <h5 class="fw-bold">Latha</h5>
+                    <p>
+                        M.Sc Medical Bioinformatics <br>
+                        Department of Bioinformatics<br>
+                        Sri Ramachandra Faculty of Engineering and Technology<br>
+                        Sri Ramachandra Institute of Higher Education and Research
+                    </p>
+                    <b>Email:</b><br>
+                    <a href="mailto:e8122003@sret.edu.in">e8122003@sret.edu.in</a><br>
+                    <a href="mailto:lathamythili2000@gmail.com">lathamythili2000@gmail.com</a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Harsha -->
+        <div class="col-md-6">
+            <div class="card shadow-sm text-center border-0 h-100">
+                <img src="{{ url_for('static', filename='images/image5.jpeg') }}" class="card-img-top" alt="Harsha">
+                <div class="card-body">
+                    <h5 class="fw-bold">Harshavardhan Anandalakshmanan</h5>
+                    <p>
+                        B.Sc (Hons) Biomedical Sciences <br>
+                        Department of Biomedical Sciences<br>
+                        Sri Ramachandra Faculty of Biomedical Sciences and Technology<br>
+                        Sri Ramachandra Institute of Higher Education and Research
+                    </p>
+                    <b>Email:</b><br>
+                    <a href="mailto:b0122068@sriher.edu.in">b0122068@sriher.edu.in</a><br>
+                    <a href="mailto:ananh012.319@gmail.com">ananh012.319@gmail.com</a>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+</div>
+
+{% endblock %}

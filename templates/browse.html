@@ -1,0 +1,170 @@
+{% extends "base.html" %}
+{% block title %}SialicDB{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+
+  <!-- UNIFIED CONTROL FORM -->
+  <form method="GET" id="filterForm">
+
+    <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+
+      <div>
+        <h2 class="fw-bold mb-0">Sialic Acid Derivatives</h2>
+        <small class="text-muted">Curated chemical database with drug-likeness screening</small>
+      </div>
+
+      <div class="d-flex gap-2 flex-wrap align-items-center">
+
+        <!-- CLIENT-SIDE SEARCH -->
+        <input id="searchBox"
+               class="form-control search-box"
+               placeholder="Search name..."
+               oninput="debounceFilter()">
+
+        <!-- SORT -->
+        <select name="sort" class="form-select"
+                onchange="document.getElementById('filterForm').submit()">
+          <option value="score_desc" {% if sort == 'score_desc' %}selected{% endif %}>Score ↓</option>
+          <option value="score_asc"  {% if sort == 'score_asc'  %}selected{% endif %}>Score ↑</option>
+          <option value="mw_desc"    {% if sort == 'mw_desc'    %}selected{% endif %}>MW ↓</option>
+          <option value="mw_asc"     {% if sort == 'mw_asc'     %}selected{% endif %}>MW ↑</option>
+          <option value="name_asc"   {% if sort == 'name_asc'   %}selected{% endif %}>Name A–Z</option>
+          <option value="name_desc"  {% if sort == 'name_desc'  %}selected{% endif %}>Name Z–A</option>
+        </select>
+
+        <input type="hidden" name="page" value="1">
+
+      </div>
+    </div>
+
+  </form>
+
+  <!-- RESULTS INFO -->
+  <div class="mb-3 text-muted small">
+    Showing {{ compounds|length }} of {{ total }} compounds
+  </div>
+
+  <!-- GRID -->
+  <div id="grid" class="row g-4">
+
+    {% for c in compounds %}
+    <div class="col-xl-3 col-lg-4 col-md-6 compound-item"
+         data-name="{{ c.entry_name|lower }}">
+
+      {# URL = /compound/<id>/<slug>  — id does the real lookup, slug is decorative #}
+      <a href="{{ url_for('compound_detail', cid=c.compound_id, slug=c.slug) }}"
+         class="text-decoration-none text-dark">
+
+        <div class="card compound-card h-100">
+
+          <div class="compound-img">
+            {% if c.png_path %}
+              <img src="{{ url_for('static', filename=c.png_path) }}">
+            {% else %}
+              <div class="text-muted small">No Image</div>
+            {% endif %}
+          </div>
+
+          <div class="card-body">
+
+            <div class="compound-name">{{ c.entry_name }}</div>
+
+            <div class="mt-2">
+              <div class="small text-muted">Drug Score</div>
+              <div class="progress" style="height:6px;">
+                <div class="progress-bar
+                  {% if c.score and c.score >= 0.75 %}bg-success
+                  {% elif c.score and c.score >= 0.5 %}bg-warning
+                  {% else %}bg-secondary{% endif %}"
+                  style="width: {{ ((c.score or 0) * 100) }}%">
+                </div>
+              </div>
+              <div class="small mt-1">
+                {{ "%.2f"|format(c.score) if c.score else "—" }}
+              </div>
+            </div>
+
+          </div>
+
+        </div>
+
+      </a>
+
+    </div>
+    {% endfor %}
+
+  </div>
+
+  <!-- PAGINATION -->
+  {% if total_pages > 1 %}
+  <nav class="mt-4">
+    <ul class="pagination justify-content-center flex-wrap">
+
+      {% if page > 1 %}
+      <li class="page-item">
+        <a class="page-link" href="?page={{ page - 1 }}&per_page={{ per_page }}&sort={{ sort }}">Previous</a>
+      </li>
+      {% endif %}
+
+      {% for p in range(1, total_pages + 1) %}
+      <li class="page-item {% if p == page %}active{% endif %}">
+        <a class="page-link" href="?page={{ p }}&per_page={{ per_page }}&sort={{ sort }}">{{ p }}</a>
+      </li>
+      {% endfor %}
+
+      {% if page < total_pages %}
+      <li class="page-item">
+        <a class="page-link" href="?page={{ page + 1 }}&per_page={{ per_page }}&sort={{ sort }}">Next</a>
+      </li>
+      {% endif %}
+
+    </ul>
+  </nav>
+  {% endif %}
+
+</div>
+
+<style>
+.search-box { max-width: 240px; }
+
+.compound-card {
+  border: none;
+  border-radius: 14px;
+  transition: all 0.25s ease;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+}
+.compound-card:hover {
+  transform: translateY(-6px);
+  box-shadow: 0 10px 30px rgba(0,0,0,0.18);
+}
+.compound-img {
+  height: 180px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #fafafa;
+  border-bottom: 1px solid #eee;
+}
+.compound-img img { max-height: 140px; max-width: 100%; }
+.compound-name { font-size: 0.9rem; font-weight: 600; height: 40px; overflow: hidden; }
+</style>
+
+<script>
+let debounceTimer;
+
+function debounceFilter() {
+  clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(applyFilters, 250);
+}
+
+function applyFilters() {
+  const q     = document.getElementById("searchBox").value.toLowerCase();
+  const items = document.querySelectorAll(".compound-item");
+  items.forEach(item => {
+    item.style.display = item.dataset.name.includes(q) ? "block" : "none";
+  });
+}
+</script>
+
+{% endblock %}

@@ -1,0 +1,242 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="container-fluid py-4" style="max-width:1400px;">
+  <div class="row g-4">
+
+    <!-- LEFT PANEL: FILTERS -->
+    <div class="col-lg-3">
+
+      <form method="GET" action="/search" id="searchForm"
+            class="card p-3 shadow-sm sticky-top" style="top:20px;">
+
+        <h5 class="fw-bold mb-3">🔍 Search</h5>
+
+        <input type="text" name="q" class="form-control mb-2"
+               placeholder="Name or Formula" value="{{ query or '' }}">
+
+        <input type="text" name="smiles" class="form-control mb-3"
+               placeholder="SMILES (optional)" value="{{ smiles or '' }}">
+
+        <hr>
+        <h6 class="fw-bold">⚙️ Filters</h6>
+
+        <label class="small">MW Range</label>
+        <div class="d-flex gap-2 mb-2">
+          <input type="number" step="0.1" name="mw_min" class="form-control"
+                 placeholder="Min" value="{{ mw_min or '' }}">
+          <input type="number" step="0.1" name="mw_max" class="form-control"
+                 placeholder="Max" value="{{ mw_max or '' }}">
+        </div>
+
+        <label class="small">LogP Range</label>
+        <div class="d-flex gap-2 mb-2">
+          <input type="number" step="0.1" name="logp_min" class="form-control"
+                 placeholder="Min" value="{{ logp_min or '' }}">
+          <input type="number" step="0.1" name="logp_max" class="form-control"
+                 placeholder="Max" value="{{ logp_max or '' }}">
+        </div>
+
+        <input type="number" name="hbd_max"  class="form-control mb-2"
+               placeholder="Max HBD" value="{{ hbd_max or '' }}">
+        <input type="number" name="hba_max"  class="form-control mb-2"
+               placeholder="Max HBA" value="{{ hba_max or '' }}">
+        <input type="number" step="0.1" name="tpsa_max" class="form-control mb-3"
+               placeholder="Max TPSA" value="{{ tpsa_max or '' }}">
+
+        <!-- page resets to 1 on new search; sort/per_page come from the selects -->
+        <input type="hidden" name="page" value="1">
+
+        <button type="submit" class="btn btn-dark w-100 mb-2">🔍 Search</button>
+        <a href="/search" class="btn btn-outline-secondary w-100">Reset</a>
+
+      </form>
+
+    </div>
+
+    <!-- RIGHT PANEL: RESULTS -->
+    <div class="col-lg-9">
+
+      <!-- HEADER -->
+      <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+
+        <h5 class="fw-bold mb-0">
+          Results
+          <span class="badge bg-secondary fw-normal ms-1" style="font-size:0.75rem;">
+            {{ total }} compounds
+          </span>
+        </h5>
+
+        <div class="d-flex gap-2 align-items-center flex-wrap">
+
+          <!-- SORT -->
+          <select name="sort" form="searchForm"
+                  class="form-select form-select-sm"
+                  onchange="submitPage1()">
+            <option value="score_desc" {% if sort == 'score_desc' %}selected{% endif %}>Score ↓</option>
+            <option value="score_asc"  {% if sort == 'score_asc'  %}selected{% endif %}>Score ↑</option>
+            <option value="mw_desc"    {% if sort == 'mw_desc'    %}selected{% endif %}>MW ↓</option>
+            <option value="mw_asc"     {% if sort == 'mw_asc'     %}selected{% endif %}>MW ↑</option>
+            <option value="name_asc"   {% if sort == 'name_asc'   %}selected{% endif %}>Name A–Z</option>
+            <option value="name_desc"  {% if sort == 'name_desc'  %}selected{% endif %}>Name Z–A</option>
+          </select>
+
+          <!-- PER PAGE -->
+          <div class="d-flex align-items-center gap-1">
+            <label class="small text-muted mb-0">Show</label>
+            <select name="per_page" form="searchForm"
+                    class="form-select form-select-sm"
+                    onchange="submitPage1()">
+              <option value="10"  {% if per_page == '10'  %}selected{% endif %}>10</option>
+              <option value="25"  {% if per_page == '25'  %}selected{% endif %}>25</option>
+              <option value="50"  {% if per_page == '50'  %}selected{% endif %}>50</option>
+              <option value="100" {% if per_page == '100' %}selected{% endif %}>100</option>
+              <option value="all" {% if per_page == 'all' %}selected{% endif %}>All</option>
+            </select>
+          </div>
+
+          <span class="text-muted small">Showing {{ compounds|length }} of {{ total }}</span>
+
+        </div>
+      </div>
+
+      <!-- CARDS GRID -->
+      {% if compounds and compounds|length > 0 %}
+
+      <div class="row g-4" id="resultsGrid">
+
+        {% for r in compounds %}
+        <div class="col-xl-4 col-md-6">
+
+          <div class="card shadow-sm h-100 compound-card">
+
+            <div style="height:200px; display:flex; align-items:center;
+                        justify-content:center; background:#fafafa;
+                        border-bottom:1px solid #eee;">
+              {% if r.png_path %}
+                <img src="{{ url_for('static', filename=r.png_path) }}"
+                     style="max-height:160px; max-width:100%;">
+              {% else %}
+                <div class="text-muted small">No Image</div>
+              {% endif %}
+            </div>
+
+            <div class="card-body">
+
+              <h6 class="fw-bold mb-1" style="font-size:0.88rem;">{{ r.entry_name }}</h6>
+              <p class="text-muted small mb-2">{{ r.molecular_formula or "—" }}</p>
+
+              <div class="mb-1">
+                <div class="small text-muted">Drug Score</div>
+                <div class="progress" style="height:5px;">
+                  <div class="progress-bar
+                    {% if r.score and r.score >= 0.75 %}bg-success
+                    {% elif r.score and r.score >= 0.5 %}bg-warning
+                    {% else %}bg-secondary{% endif %}"
+                    style="width: {{ ((r.score or 0) * 100)|round }}%">
+                  </div>
+                </div>
+                <div class="small mt-1">{{ "%.2f"|format(r.score) if r.score else "—" }}</div>
+              </div>
+
+              <div class="small text-muted mt-2">
+                MW: {{ "%.2f"|format(r.molecular_weight) if r.molecular_weight else "—" }} &nbsp;|&nbsp;
+                LogP: {{ "%.2f"|format(r.logp) if r.logp else "—" }}<br>
+                HBD/HBA: {{ r.hbd or 0 }}/{{ r.hba or 0 }} &nbsp;|&nbsp;
+                TPSA: {{ "%.2f"|format(r.tpsa) if r.tpsa else "—" }}
+              </div>
+
+              {% if r.similarity is defined %}
+              <div class="mt-2">
+                <span class="badge bg-info text-dark">
+                  Similarity: {{ "%.2f"|format(r.similarity) }}
+                </span>
+              </div>
+              {% endif %}
+
+            </div>
+
+            <div class="card-footer text-center bg-white border-0 pb-3">
+              {# cid = real lookup key, slug = decorative name in URL #}
+              <a href="{{ url_for('compound_detail', cid=r.compound_id, slug=r.slug) }}"
+                 class="btn btn-sm btn-outline-dark w-100">
+                View Details
+              </a>
+            </div>
+
+          </div>
+
+        </div>
+        {% endfor %}
+
+      </div>
+
+      {% else %}
+      <div class="text-center text-muted mt-5">
+        <h5>No results found</h5>
+        <p>Try adjusting filters or search query</p>
+      </div>
+      {% endif %}
+
+      <!-- PAGINATION -->
+      {% if total_pages > 1 %}
+      <nav class="mt-4">
+        <ul class="pagination justify-content-center flex-wrap">
+
+          {% if page > 1 %}
+          <li class="page-item">
+            <a class="page-link"
+               href="?q={{ query or '' }}&smiles={{ smiles or '' }}&sort={{ sort }}&per_page={{ per_page }}&page={{ page - 1 }}&mw_min={{ mw_min or '' }}&mw_max={{ mw_max or '' }}&logp_min={{ logp_min or '' }}&logp_max={{ logp_max or '' }}&hbd_max={{ hbd_max or '' }}&hba_max={{ hba_max or '' }}&tpsa_max={{ tpsa_max or '' }}">
+              Previous
+            </a>
+          </li>
+          {% endif %}
+
+          {% for p in range(1, total_pages + 1) %}
+          <li class="page-item {% if p == page %}active{% endif %}">
+            <a class="page-link"
+               href="?q={{ query or '' }}&smiles={{ smiles or '' }}&sort={{ sort }}&per_page={{ per_page }}&page={{ p }}&mw_min={{ mw_min or '' }}&mw_max={{ mw_max or '' }}&logp_min={{ logp_min or '' }}&logp_max={{ logp_max or '' }}&hbd_max={{ hbd_max or '' }}&hba_max={{ hba_max or '' }}&tpsa_max={{ tpsa_max or '' }}">
+              {{ p }}
+            </a>
+          </li>
+          {% endfor %}
+
+          {% if page < total_pages %}
+          <li class="page-item">
+            <a class="page-link"
+               href="?q={{ query or '' }}&smiles={{ smiles or '' }}&sort={{ sort }}&per_page={{ per_page }}&page={{ page + 1 }}&mw_min={{ mw_min or '' }}&mw_max={{ mw_max or '' }}&logp_min={{ logp_min or '' }}&logp_max={{ logp_max or '' }}&hbd_max={{ hbd_max or '' }}&hba_max={{ hba_max or '' }}&tpsa_max={{ tpsa_max or '' }}">
+              Next
+            </a>
+          </li>
+          {% endif %}
+
+        </ul>
+      </nav>
+      {% endif %}
+
+    </div>
+  </div>
+</div>
+
+<style>
+.compound-card {
+  border: none;
+  border-radius: 14px;
+  transition: all 0.25s ease;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+}
+.compound-card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 10px 28px rgba(0,0,0,0.15);
+}
+</style>
+
+<script>
+function submitPage1() {
+  const form = document.getElementById("searchForm");
+  form.querySelector('[name="page"]').value = "1";
+  form.submit();
+}
+</script>
+
+{% endblock %}

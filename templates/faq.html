@@ -1,0 +1,182 @@
+{% extends "base.html" %}
+{% block title %}FAQ - SAAAD - Sialic Acid Analogs ADME Prediction Database{% endblock %}
+
+{% block content %}
+
+<div class="container py-5" style="max-width: 1100px;">
+
+    <h2 class="mb-4 fw-bold">Frequently Asked Questions</h2>
+    <p class="text-muted mb-5">
+        Learn more about the design, analysis, and features of the SAAAD - Sialic Acid Analogs ADME Prediction Database.
+    </p>
+
+    <div class="accordion" id="faqAccordion">
+
+        <!-- 1 -->
+        <div class="accordion-item">
+            <h2 class="accordion-header">
+                <button class="accordion-button" data-bs-toggle="collapse" data-bs-target="#a1">
+                    What is SAAAD - Sialic Acid Analogs ADME Prediction Database?
+                </button>
+            </h2>
+            <div id="a1" class="accordion-collapse collapse show">
+                <div class="accordion-body">
+                    <strong>SAAAD</strong> is a computational database of <b>novel sialic acid derivatives</b> 
+                    designed and analyzed using cheminformatics workflows. It integrates molecular design, 
+                    structural analysis, and drug-likeness evaluation into a single interactive platform.
+                </div>
+            </div>
+        </div>
+
+        <!-- 2 -->
+        <div class="accordion-item">
+            <h2 class="accordion-header">
+                <button class="accordion-button collapsed" data-bs-toggle="collapse" data-bs-target="#a2">
+                    Are these compounds sourced from public databases?
+                </button>
+            </h2>
+            <div id="a2" class="accordion-collapse collapse">
+                <div class="accordion-body">
+                    <strong>No.</strong> All compounds in this database are <b>internally designed</b> 
+                    as part of a computational drug discovery workflow.  
+                    They are not directly sourced from external repositories such as PubChem.
+                </div>
+            </div>
+        </div>
+
+        <!-- 3 -->
+        <div class="accordion-item">
+            <h2 class="accordion-header">
+                <button class="accordion-button collapsed" data-bs-toggle="collapse" data-bs-target="#a3">
+                    How were the compounds generated?
+                </button>
+            </h2>
+            <div id="a3" class="accordion-collapse collapse">
+                <div class="accordion-body">
+                    The compounds were generated through structural modification of sialic acid scaffolds, 
+                    followed by computational processing including:
+                    <ul>
+                        <li>SMILES-based molecular design</li>
+                        <li>3D conformer generation (RDKit)</li>
+                        <li>Geometry optimization</li>
+                        <li>Descriptor calculation</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- 4 -->
+        <div class="accordion-item">
+            <h2 class="accordion-header">
+                <button class="accordion-button collapsed" data-bs-toggle="collapse" data-bs-target="#a4">
+                    What kind of data is available for each compound?
+                </button>
+            </h2>
+            <div id="a4" class="accordion-collapse collapse">
+                <div class="accordion-body">
+                    Each compound includes:
+                    <ul>
+                        <li>2D and 3D molecular structures</li>
+                        <li>SMILES, InChI, molecular formula</li>
+                        <li>Physicochemical descriptors (MW, LogP, TPSA, etc.)</li>
+                        <li>Drug-likeness rule evaluations</li>
+                        <li>Composite scoring and ranking</li>
+                        <li>Structural fingerprints</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- 5 -->
+        <div class="accordion-item">
+            <h2 class="accordion-header">
+                <button class="accordion-button collapsed" data-bs-toggle="collapse" data-bs-target="#a5">
+                    How is drug-likeness evaluated?
+                </button>
+            </h2>
+            <div id="a5" class="accordion-collapse collapse">
+                <div class="accordion-body">
+                    Drug-likeness is evaluated using multiple rule-based filters:
+                    <ul>
+                        <li>Lipinski Rule of Five</li>
+                        <li>Veber Rule</li>
+                        <li>Ghose Filter</li>
+                        <li>Egan Rule</li>
+                        <li>Muegge Criteria</li>
+                    </ul>
+                    A penalty-based scoring system is used to rank compounds.
+                </div>
+            </div>
+        </div>
+
+        <!-- 6 -->
+        <div class="accordion-item">
+            <h2 class="accordion-header">
+                <button class="accordion-button collapsed" data-bs-toggle="collapse" data-bs-target="#a6">
+                    What is PCA visualization?
+                </button>
+            </h2>
+            <div id="a6" class="accordion-collapse collapse">
+                <div class="accordion-body">
+                    Principal Component Analysis (PCA) reduces high-dimensional descriptor data 
+                    into a 2D representation, allowing users to explore chemical space, 
+                    identify clusters, and compare compounds visually.
+                </div>
+            </div>
+        </div>
+
+        <!-- 7 -->
+        <div class="accordion-item">
+            <h2 class="accordion-header">
+                <button class="accordion-button collapsed" data-bs-toggle="collapse" data-bs-target="#a7">
+                    How does similarity analysis work?
+                </button>
+            </h2>
+            <div id="a7" class="accordion-collapse collapse">
+                <div class="accordion-body">
+                    Molecular similarity is calculated using fingerprint-based methods and 
+                    Tanimoto similarity, enabling identification of structurally related compounds 
+                    and nearest neighbors.
+                </div>
+            </div>
+        </div>
+
+        <!-- 8 -->
+        <div class="accordion-item">
+            <h2 class="accordion-header">
+                <button class="accordion-button collapsed" data-bs-toggle="collapse" data-bs-target="#a8">
+                    Can I download the structures?
+                </button>
+            </h2>
+            <div id="a8" class="accordion-collapse collapse">
+                <div class="accordion-body">
+                    Yes. Structures can be downloaded in formats such as SDF, MOL, and MOL2 
+                    for further computational or experimental use.
+                </div>
+            </div>
+        </div>
+
+        <!-- 9 -->
+        <div class="accordion-item">
+            <h2 class="accordion-header">
+                <button class="accordion-button collapsed" data-bs-toggle="collapse" data-bs-target="#a9">
+                    Who is this database intended for?
+                </button>
+            </h2>
+            <div id="a9" class="accordion-collapse collapse">
+                <div class="accordion-body">
+                    The platform is intended for:
+                    <ul>
+                        <li>Drug discovery researchers</li>
+                        <li>Medicinal chemists</li>
+                        <li>Bioinformatics and cheminformatics students</li>
+                        <li>Researchers exploring glycan-based therapeutics</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+{% endblock %}

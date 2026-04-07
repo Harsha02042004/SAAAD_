@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+*.pyo
+.env
+
+instance/
+*.db-journal
+
+# VERY IMPORTANT (your 16k images issue)
+static/similar_images/
+static/generated/
+static/cache/
+
+# OS junk
+.DS_Store
+Thumbs.db
