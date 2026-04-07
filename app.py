@@ -5,24 +5,24 @@ import os
 import re
 import sqlite3
 import tempfile
-import subprocess
+import base64
 from collections import defaultdict, Counter
-from io import BytesIO
+from functools import lru_cache
 
 from flask import Flask, render_template, request, jsonify, send_file, after_this_request, Response
 
 from rdkit import Chem
+from rdkit.Chem import AllChem, rdMolDescriptors
 from rdkit.Chem.rdFingerprintGenerator import GetMorganGenerator
 from rdkit.DataStructs import TanimotoSimilarity
 from rdkit.Chem.Scaffolds import MurckoScaffold
+from rdkit.Chem.Draw import rdMolDraw2D
+from rdkit.Chem import rdFMCS
 
 import numpy as np
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 from sklearn.cluster import KMeans
-from rdkit.Chem.Draw import rdMolDraw2D
-from rdkit.Chem import rdFMCS
-from rdkit.Chem import Draw
 
 # =========================
 # APP INIT
@@ -36,6 +36,15 @@ CLUSTER_COLORS = ["#e74c3c", "#3498db", "#2ecc71", "#9b59b6", "#f39c12"]
 
 PNG_DIR = os.path.join("static", "structures", "png")
 os.makedirs(PNG_DIR, exist_ok=True)
+os.makedirs(os.path.join("static", "highlights"), exist_ok=True)
+
+# ─────────────────────────────────────────────
+# MODULE-LEVEL CACHE
+# PCA + clusters computed once on first request,
+# then reused for every subsequent page load.
+# ─────────────────────────────────────────────
+_COMPOUND_CACHE = None   # list of fully-built compound dicts
+
 
 # =========================
 # BASIC UTILITIES
@@ -48,14 +57,13 @@ def get_db():
 def safe_mol(smiles):
     try:
         return Chem.MolFromSmiles(smiles or "")
-    except:
+    except Exception:
         return None
 
 def sanitize_filename(name):
     return re.sub(r'[^a-zA-Z0-9_-]', '_', name or "unknown")
 
 def slugify(name):
-    """Decorative URL slug — only used for pretty URLs, never for lookup."""
     return re.sub(r'[^a-zA-Z0-9]+', '-', name or "").strip('-').lower()
 
 def add_png_path(record):
@@ -66,10 +74,8 @@ def add_png_path(record):
 
 # =========================
 # PNG GENERATION
-# Renders a molecule to PNG bytes using RDKit.
 # =========================
 def render_mol_to_png(smiles, width=300, height=300):
-    """Return PNG bytes for the given SMILES, or None on failure."""
     mol = safe_mol(smiles)
     if mol is None:
         return None
@@ -84,27 +90,23 @@ def render_mol_to_png(smiles, width=300, height=300):
         return None
 
 
-# =========================
-# DYNAMIC PNG ROUTE
-#
-# Serves static/structures/png/<safe_name>.png.
-# If the file is missing, generates it on-the-fly from the DB
-# and saves it to disk so subsequent requests are instant.
-# =========================
+def _placeholder_png():
+    b64 = (
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk"
+        "YPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+    )
+    return Response(base64.b64decode(b64), mimetype="image/png")
+
+
 @app.route("/structures/png/<path:filename>")
 def serve_structure_png(filename):
     disk_path = os.path.join("static", "structures", "png", filename)
 
-    # ── 1. Already on disk → serve directly ──────────────────────────────────
     if os.path.exists(disk_path) and os.path.getsize(disk_path) > 100:
         return send_file(disk_path, mimetype="image/png")
 
-    # ── 2. Not on disk → look up by entry_name and render ────────────────────
-    # Reverse the sanitize_filename transform is lossy, so we query by
-    # comparing sanitize_filename(entry_name) against the requested filename.
     base = filename.replace(".png", "")
-
-    con = get_db()
+    con  = get_db()
     rows = con.execute("SELECT entry_name, smiles FROM compounds").fetchall()
     con.close()
 
@@ -115,14 +117,12 @@ def serve_structure_png(filename):
             break
 
     if smiles is None:
-        # Return a tiny transparent PNG placeholder so <img> doesn't break
         return _placeholder_png(), 404
 
     png_bytes = render_mol_to_png(smiles)
     if png_bytes is None:
         return _placeholder_png(), 500
 
-    # Save to disk for next time
     try:
         with open(disk_path, "wb") as f:
             f.write(png_bytes)
@@ -130,16 +130,6 @@ def serve_structure_png(filename):
         print(f"[PNG] could not cache {disk_path}: {e}")
 
     return Response(png_bytes, mimetype="image/png")
-
-
-def _placeholder_png():
-    """1×1 transparent PNG — keeps <img> tags from showing broken icons."""
-    import base64
-    b64 = (
-        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk"
-        "YPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
-    )
-    return Response(base64.b64decode(b64), mimetype="image/png")
 
 
 # =========================
@@ -152,7 +142,7 @@ def compute_scaffold(smiles):
     try:
         scaffold = MurckoScaffold.GetScaffoldForMol(mol)
         return Chem.MolToSmiles(scaffold, isomericSmiles=True)
-    except:
+    except Exception:
         return None
 
 
@@ -175,19 +165,17 @@ def get_highlight_images(smiles1, smiles2, name1="mol1", name2="mol2"):
         path1   = os.path.join("static", file1)
         path2   = os.path.join("static", file2)
 
-        os.makedirs(os.path.join("static", "highlights"), exist_ok=True)
-
-        # Serve from disk if already rendered
         if (
             os.path.exists(path1) and os.path.getsize(path1) > 100 and
             os.path.exists(path2) and os.path.getsize(path2) > 100
         ):
             return file1, file2, 0.0
 
-        # Find MCS
-        mcs = rdFMCS.FindMCS([mol1, mol2], timeout=2,
-                              atomCompare=rdFMCS.AtomCompare.CompareElements,
-                              bondCompare=rdFMCS.BondCompare.CompareOrder)
+        mcs = rdFMCS.FindMCS(
+            [mol1, mol2], timeout=2,
+            atomCompare=rdFMCS.AtomCompare.CompareElements,
+            bondCompare=rdFMCS.BondCompare.CompareOrder,
+        )
         if not mcs.smartsString:
             return None, None, 0.0
 
@@ -199,11 +187,10 @@ def get_highlight_images(smiles1, smiles2, name1="mol1", name2="mol2"):
         match2 = mol2.GetSubstructMatch(patt)
 
         def draw_highlighted(mol, match, out_path):
-            hit_bonds = []
-            for bond in mol.GetBonds():
-                if bond.GetBeginAtomIdx() in match and bond.GetEndAtomIdx() in match:
-                    hit_bonds.append(bond.GetIdx())
-
+            hit_bonds = [
+                bond.GetIdx() for bond in mol.GetBonds()
+                if bond.GetBeginAtomIdx() in match and bond.GetEndAtomIdx() in match
+            ]
             drawer = rdMolDraw2D.MolDraw2DCairo(300, 300)
             drawer.drawOptions().addStereoAnnotation = True
             drawer.DrawMolecule(
@@ -220,12 +207,15 @@ def get_highlight_images(smiles1, smiles2, name1="mol1", name2="mol2"):
         draw_highlighted(mol1, match1, path1)
         draw_highlighted(mol2, match2, path2)
 
-        overlap = len(match1) / min(mol1.GetNumAtoms(), mol2.GetNumAtoms()) if match1 else 0.0
+        smaller = min(mol1.GetNumAtoms(), mol2.GetNumAtoms())
+        overlap = len(match1) / smaller if match1 and smaller > 0 else 0.0
         return file1, file2, round(overlap, 2)
 
     except Exception as e:
         print(f"[Highlight] FAILED: {e}")
         return None, None, 0.0
+
+
 # =========================
 # SIMILARITY
 # =========================
@@ -243,7 +233,7 @@ def compute_similarity_v2(target, compounds, threshold=0.4, top_n=10):
             c.get("logp") or 0,
             c.get("tpsa") or 0,
             c.get("hbd") or 0,
-            c.get("hba") or 0
+            c.get("hba") or 0,
         ])
 
     def property_similarity(p1, p2):
@@ -255,10 +245,10 @@ def compute_similarity_v2(target, compounds, threshold=0.4, top_n=10):
     target_props = extract_props(target)
     results      = []
 
-    for c in compounds:
-        if c["compound_id"] == target["compound_id"]:
-            continue
+    # Limit to 300 compounds to prevent OOM on free tier
+    candidate_pool = [c for c in compounds if c["compound_id"] != target["compound_id"]][:300]
 
+    for c in candidate_pool:
         mol = safe_mol(c.get("smiles"))
         if not mol:
             continue
@@ -272,9 +262,9 @@ def compute_similarity_v2(target, compounds, threshold=0.4, top_n=10):
             try:
                 scaffold_sim = TanimotoSimilarity(
                     gen.GetFingerprint(target_scaffold),
-                    gen.GetFingerprint(scaf2)
+                    gen.GetFingerprint(scaf2),
                 )
-            except:
+            except Exception:
                 pass
 
         prop_sim  = property_similarity(target_props, extract_props(c))
@@ -282,12 +272,12 @@ def compute_similarity_v2(target, compounds, threshold=0.4, top_n=10):
         try:
             mcs = rdFMCS.FindMCS([target_mol, mol], timeout=1)
             if mcs.smartsString:
-                patt    = Chem.MolFromSmarts(mcs.smartsString)
-                match1  = target_mol.GetSubstructMatch(patt)
+                patt   = Chem.MolFromSmarts(mcs.smartsString)
+                match1 = target_mol.GetSubstructMatch(patt)
                 smaller = min(target_mol.GetNumAtoms(), mol.GetNumAtoms())
                 if smaller > 0:
                     mcs_score = len(match1) / smaller
-        except:
+        except Exception:
             pass
 
         final_score = (
@@ -299,31 +289,24 @@ def compute_similarity_v2(target, compounds, threshold=0.4, top_n=10):
         if final_score < threshold:
             continue
 
-        explanation = []
-        explanation.append(
-            "Highly similar overall structure" if tanimoto > 0.75 else
-            "Moderately similar structure"     if tanimoto > 0.5  else
-            "Low structural similarity"
-        )
-        explanation.append(
-            "Core scaffold conserved"        if scaffold_sim > 0.7 else
-            "Partially similar scaffold"     if scaffold_sim > 0.4 else
-            "Different core scaffold"
-        )
-        explanation.append(
-            "Physicochemical properties aligned" if prop_sim > 0.7 else
-            "Moderate property similarity"       if prop_sim > 0.5 else
-            "Different physicochemical profile"
-        )
-        explanation.append(
-            "Large shared substructure"   if mcs_score > 0.6 else
-            "Partial substructure overlap" if mcs_score > 0.3 else
-            "Minimal shared substructure"
-        )
+        explanation = [
+            ("Highly similar overall structure" if tanimoto > 0.75 else
+             "Moderately similar structure"     if tanimoto > 0.5  else
+             "Low structural similarity"),
+            ("Core scaffold conserved"        if scaffold_sim > 0.7 else
+             "Partially similar scaffold"     if scaffold_sim > 0.4 else
+             "Different core scaffold"),
+            ("Physicochemical properties aligned" if prop_sim > 0.7 else
+             "Moderate property similarity"       if prop_sim > 0.5 else
+             "Different physicochemical profile"),
+            ("Large shared substructure"    if mcs_score > 0.6 else
+             "Partial substructure overlap" if mcs_score > 0.3 else
+             "Minimal shared substructure"),
+        ]
 
         img1, img2, overlap = get_highlight_images(
             target.get("smiles"), c.get("smiles"),
-            target.get("entry_name"), c.get("entry_name")
+            target.get("entry_name"), c.get("entry_name"),
         )
 
         c_copy = dict(c)
@@ -344,7 +327,7 @@ def compute_similarity_v2(target, compounds, threshold=0.4, top_n=10):
 
 
 # =========================
-# PCA
+# PCA + CLUSTERING
 # =========================
 def get_feature_vector(c):
     return [
@@ -361,12 +344,13 @@ def compute_pca(compounds):
     try:
         X = np.array([get_feature_vector(c) for c in compounds])
         if len(X) < 2:
-            return [(0, 0)] * len(compounds)
+            return [(0.0, 0.0)] * len(compounds)
         X      = StandardScaler().fit_transform(X)
         coords = PCA(n_components=2).fit_transform(X)
-        return coords.tolist()
-    except:
-        return [(0, 0)] * len(compounds)
+        return [(float(row[0]), float(row[1])) for row in coords]
+    except Exception as e:
+        print(f"[PCA] failed: {e}")
+        return [(0.0, 0.0)] * len(compounds)
 
 def compute_clusters(compounds, n_clusters=4):
     try:
@@ -374,10 +358,66 @@ def compute_clusters(compounds, n_clusters=4):
         if len(X) < n_clusters:
             return [0] * len(compounds)
         X      = StandardScaler().fit_transform(X)
-        labels = KMeans(n_clusters=n_clusters, random_state=42).fit_predict(X)
+        labels = KMeans(n_clusters=n_clusters, random_state=42, n_init=10).fit_predict(X)
         return labels.tolist()
-    except:
+    except Exception as e:
+        print(f"[Cluster] failed: {e}")
         return [0] * len(compounds)
+
+
+# =========================
+# COMPOUND CACHE
+# Loads all compounds from DB, computes PCA + clusters,
+# assigns ranks — done ONCE per process lifetime.
+# =========================
+def get_cached_compounds():
+    """Return the fully-built, PCA-annotated compound list.
+    Computed on first call; subsequent calls return instantly."""
+    global _COMPOUND_CACHE
+    if _COMPOUND_CACHE is not None:
+        return _COMPOUND_CACHE
+
+    print("[Cache] Building compound cache…")
+    con   = get_db()
+    rows  = con.execute("""
+        SELECT compound_id, entry_name, smiles, molecular_formula,
+               molecular_weight, logp, hbd, hba, tpsa, rotatable_bonds, fsp3
+        FROM compounds
+    """).fetchall()
+    con.close()
+
+    compounds = build_compounds(rows)
+
+    # ── PCA ──────────────────────────────────────────────────────────────────
+    coords = compute_pca(compounds)
+    for i, comp in enumerate(compounds):
+        comp["pca_x"] = coords[i][0]
+        comp["pca_y"] = coords[i][1]
+
+    # ── Cluster + remap left→right by PCA x ──────────────────────────────────
+    raw_clusters = compute_clusters(compounds)
+    for i, comp in enumerate(compounds):
+        comp["cluster"] = raw_clusters[i]
+
+    cluster_centers = {}
+    for cid_k in set(raw_clusters):
+        subset = [c for c in compounds if c["cluster"] == cid_k]
+        if subset:
+            cluster_centers[cid_k] = sum(c["pca_x"] for c in subset) / len(subset)
+
+    ordered_clusters = sorted(cluster_centers, key=lambda k: cluster_centers[k])
+    remap = {old: new for new, old in enumerate(ordered_clusters)}
+    for comp in compounds:
+        comp["cluster"] = remap[comp["cluster"]]
+
+    # ── Rank by score ─────────────────────────────────────────────────────────
+    compounds = sorted(compounds, key=lambda x: x["score"], reverse=True)
+    for i, comp in enumerate(compounds):
+        comp["rank"] = i + 1
+
+    _COMPOUND_CACHE = compounds
+    print(f"[Cache] Done — {len(compounds)} compounds cached.")
+    return _COMPOUND_CACHE
 
 
 # =========================
@@ -464,10 +504,10 @@ def compute_rules(c):
         return {}
 
     lip = []
-    if mw > 500:                           lip.append("MW > 500")
-    if logp is not None and logp > 5:      lip.append("LogP > 5")
-    if hba and hba > 10:                   lip.append("HBA > 10")
-    if hbd and hbd > 5:                    lip.append("HBD > 5")
+    if mw > 500:                      lip.append("MW > 500")
+    if logp is not None and logp > 5: lip.append("LogP > 5")
+    if hba and hba > 10:              lip.append("HBA > 10")
+    if hbd and hbd > 5:               lip.append("HBD > 5")
 
     return {
         "Lipinski": {
@@ -554,7 +594,7 @@ def classify_solubility(c):
 
 def classify_permeability(c):
     tpsa = c.get("tpsa") or 0
-    if tpsa < 90:  return "High"
+    if tpsa < 90:    return "High"
     elif tpsa < 140: return "Moderate"
     return "Low"
 
@@ -609,9 +649,9 @@ def explain_score(c):
 
 # =========================
 # DOWNLOAD ROUTE
+# Pure RDKit — no obabel, no system dependencies,
+# works on any platform including Render free tier.
 # =========================
-THREED_DIR = os.path.join("mol2", "3D")
-
 @app.route("/download/<fmt>/<int:cid>")
 def download_structure(fmt, cid):
     con = get_db()
@@ -621,41 +661,129 @@ def download_structure(fmt, cid):
     if not row:
         return "Not found", 404
 
-    raw_name  = row["entry_name"]
-    safe_name = sanitize_filename(raw_name)
+    smiles    = row["smiles"]
+    safe_name = sanitize_filename(row["entry_name"])
+    mol       = safe_mol(smiles)
 
-    mol_path = None
-    for file in os.listdir(THREED_DIR):
-        if file.lower().startswith(raw_name.lower()):
-            mol_path = os.path.join(THREED_DIR, file)
-            break
+    if mol is None:
+        return "Invalid SMILES — cannot generate structure file", 400
 
-    if not mol_path:
-        return f"3D file not found for {raw_name}", 404
+    fmt = fmt.lower()
 
-    tmp_dir = tempfile.mkdtemp()
-    try:
-        filepath = os.path.join(tmp_dir, f"{safe_name}.{fmt}")
-        subprocess.run(["obabel", mol_path, "-O", filepath], check=True)
-    except Exception as e:
-        return f"Conversion failed: {str(e)}", 500
+    # ── SDF ──────────────────────────────────────────────────────────────────
+    if fmt == "sdf":
+        try:
+            # Embed 3-D coords so the SDF is useful for visualisation
+            mol_h = Chem.AddHs(mol)
+            AllChem.EmbedMolecule(mol_h, AllChem.ETKDGv3())
+            AllChem.MMFFOptimizeMolecule(mol_h)
+            mol_out = Chem.RemoveHs(mol_h)
+        except Exception:
+            mol_out = mol   # fall back to 2-D if 3-D embedding fails
 
-    @after_this_request
-    def cleanup(response):
-        import shutil
-        shutil.rmtree(tmp_dir, ignore_errors=True)
-        return response
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".sdf")
+        try:
+            writer = Chem.SDWriter(tmp.name)
+            writer.write(mol_out)
+            writer.close()
+            return send_file(
+                tmp.name,
+                as_attachment=True,
+                download_name=f"{safe_name}.sdf",
+                mimetype="chemical/x-mdl-sdfile",
+            )
+        except Exception as e:
+            return f"SDF generation failed: {e}", 500
 
-    return send_file(filepath, as_attachment=False)
+    # ── MOL (V2000 molfile) ───────────────────────────────────────────────────
+    elif fmt == "mol":
+        try:
+            molblock = Chem.MolToMolBlock(mol)
+            return Response(
+                molblock,
+                mimetype="chemical/x-mdl-molfile",
+                headers={"Content-Disposition": f"attachment; filename={safe_name}.mol"},
+            )
+        except Exception as e:
+            return f"MOL generation failed: {e}", 500
+
+    # ── MOL2 (basic XYZ-based via RDKit + manual mol2 writer) ─────────────────
+    # RDKit does not have a native MOL2 writer, so we generate a minimal
+    # Tripos MOL2 from the 3-D conformer if available, otherwise 2-D.
+    elif fmt == "mol2":
+        try:
+            mol_h = Chem.AddHs(mol)
+            try:
+                AllChem.EmbedMolecule(mol_h, AllChem.ETKDGv3())
+                AllChem.MMFFOptimizeMolecule(mol_h)
+                mol_3d = Chem.RemoveHs(mol_h)
+            except Exception:
+                AllChem.Compute2DCoords(mol)
+                mol_3d = mol
+
+            conf = mol_3d.GetConformer() if mol_3d.GetNumConformers() > 0 else None
+
+            lines = [
+                "@<TRIPOS>MOLECULE",
+                safe_name,
+                f" {mol_3d.GetNumAtoms()} {mol_3d.GetNumBonds()} 0 0 0",
+                "SMALL",
+                "GASTEIGER",
+                "",
+                "@<TRIPOS>ATOM",
+            ]
+
+            for atom in mol_3d.GetAtoms():
+                idx    = atom.GetIdx() + 1
+                symbol = atom.GetSymbol()
+                if conf:
+                    pos = conf.GetAtomPosition(atom.GetIdx())
+                    x, y, z = pos.x, pos.y, pos.z
+                else:
+                    x = y = z = 0.0
+                lines.append(
+                    f"{idx:>6} {symbol:<4} {x:>10.4f} {y:>10.4f} {z:>10.4f} "
+                    f"{symbol:<4} 1 LIG 0.0000"
+                )
+
+            lines.append("@<TRIPOS>BOND")
+            bond_type_map = {
+                Chem.BondType.SINGLE:    "1",
+                Chem.BondType.DOUBLE:    "2",
+                Chem.BondType.TRIPLE:    "3",
+                Chem.BondType.AROMATIC:  "ar",
+            }
+            for bond in mol_3d.GetBonds():
+                btype = bond_type_map.get(bond.GetBondType(), "1")
+                lines.append(
+                    f"{bond.GetIdx()+1:>6} "
+                    f"{bond.GetBeginAtomIdx()+1:>6} "
+                    f"{bond.GetEndAtomIdx()+1:>6} {btype}"
+                )
+
+            mol2_text = "\n".join(lines) + "\n"
+            return Response(
+                mol2_text,
+                mimetype="chemical/x-mol2",
+                headers={"Content-Disposition": f"attachment; filename={safe_name}.mol2"},
+            )
+        except Exception as e:
+            return f"MOL2 generation failed: {e}", 500
+
+    else:
+        return f"Unsupported format: {fmt}", 400
 
 
 # =========================
 # CLUSTER SUMMARY
 # =========================
 def interpret_cluster(summary):
-    if summary["MW"] > 450:                         return "Bulky glycoconjugates"
-    elif summary["TPSA"] > 180:                     return "Highly polar surface-binding analogs"
-    elif summary["MW"] < 350 and summary["RB"] < 6: return "Compact sialic scaffolds"
+    if summary["MW"] > 450:
+        return "Bulky glycoconjugates"
+    elif summary["TPSA"] > 180:
+        return "Highly polar surface-binding analogs"
+    elif summary["MW"] < 350 and summary["RB"] < 6:
+        return "Compact sialic scaffolds"
     return "Intermediate derivatives"
 
 def summarize_cluster(compounds, cluster_id):
@@ -726,7 +854,6 @@ def build_compounds(rows):
 # =========================
 def paginate(items, page_str, per_page_str):
     total = len(items)
-
     if per_page_str == "all":
         return items, 1, 1, "all"
 
@@ -734,7 +861,6 @@ def paginate(items, page_str, per_page_str):
     total_pages  = max(1, (total + per_page_int - 1) // per_page_int)
     page         = max(1, min(int(page_str), total_pages))
     start        = (page - 1) * per_page_int
-
     return items[start:start + per_page_int], page, total_pages, per_page_str
 
 
@@ -794,12 +920,9 @@ def search():
     if logp_min and logp_max:
         conditions.append("logp BETWEEN ? AND ?")
         params.extend([logp_min, logp_max])
-    if hbd_max:
-        conditions.append("hbd <= ?"); params.append(hbd_max)
-    if hba_max:
-        conditions.append("hba <= ?"); params.append(hba_max)
-    if tpsa_max:
-        conditions.append("tpsa <= ?"); params.append(tpsa_max)
+    if hbd_max:  conditions.append("hbd <= ?"); params.append(hbd_max)
+    if hba_max:  conditions.append("hba <= ?"); params.append(hba_max)
+    if tpsa_max: conditions.append("tpsa <= ?"); params.append(tpsa_max)
 
     sql = "SELECT * FROM compounds"
     if conditions:
@@ -916,51 +1039,19 @@ def browse():
 # =========================
 @app.route("/compound/<int:cid>/<path:slug>")
 def compound_detail(cid, slug):
-    con       = get_db()
     threshold = float(request.args.get("threshold", 0.4))
 
-    rows = con.execute("""
-        SELECT compound_id, entry_name, smiles, molecular_formula,
-               molecular_weight, logp, hbd, hba, tpsa, rotatable_bonds, fsp3
-        FROM compounds
-    """).fetchall()
-    con.close()
-
-    compounds = build_compounds(rows)
-
-    # ── PCA ──────────────────────────────────────────────────────────────────
-    coords = compute_pca(compounds)
-    for i, comp in enumerate(compounds):
-        comp["pca_x"] = coords[i][0]
-        comp["pca_y"] = coords[i][1]
-
-    # ── Cluster + remap left→right by PCA x ──────────────────────────────────
-    raw_clusters = compute_clusters(compounds)
-    for i, comp in enumerate(compounds):
-        comp["cluster"] = raw_clusters[i]
-
-    cluster_centers  = {}
-    for cid_k in set(raw_clusters):
-        subset = [c for c in compounds if c["cluster"] == cid_k]
-        if subset:
-            cluster_centers[cid_k] = sum(c["pca_x"] for c in subset) / len(subset)
-
-    ordered_clusters = sorted(cluster_centers, key=lambda k: cluster_centers[k])
-    remap            = {old: new for new, old in enumerate(ordered_clusters)}
-    for comp in compounds:
-        comp["cluster"] = remap[comp["cluster"]]
-
-    # ── PCA bounds ────────────────────────────────────────────────────────────
-    xs = [c["pca_x"] for c in compounds]
-    ys = [c["pca_y"] for c in compounds]
-    pca_bounds = {"x_min": min(xs), "x_max": max(xs), "y_min": min(ys), "y_max": max(ys)}
-
-    # ── Rank ──────────────────────────────────────────────────────────────────
-    compounds = sorted(compounds, key=lambda x: x["score"], reverse=True)
-    for i, comp in enumerate(compounds):
-        comp["rank"] = i + 1
+    # ── Use cached compounds — NO recomputation ───────────────────────────────
+    compounds = get_cached_compounds()
 
     total_compounds = len(compounds)
+
+    xs = [c["pca_x"] for c in compounds]
+    ys = [c["pca_y"] for c in compounds]
+    pca_bounds = {
+        "x_min": min(xs), "x_max": max(xs),
+        "y_min": min(ys), "y_max": max(ys),
+    }
 
     # ── Lookup target ─────────────────────────────────────────────────────────
     target = next((x for x in compounds if x["compound_id"] == cid), None)
@@ -968,8 +1059,9 @@ def compound_detail(cid, slug):
         return render_template("404.html"), 404
 
     # ── PCA groups + cluster summaries ────────────────────────────────────────
+    n_clusters      = len(set(c["cluster"] for c in compounds))
     pca_grouped     = group_pca_points(compounds)
-    cluster_summary = {i: summarize_cluster(compounds, i) for i in range(len(ordered_clusters))}
+    cluster_summary = {i: summarize_cluster(compounds, i) for i in range(n_clusters)}
 
     # ── Similarity ────────────────────────────────────────────────────────────
     similar_compounds = compute_similarity_v2(target, compounds, threshold=threshold)
