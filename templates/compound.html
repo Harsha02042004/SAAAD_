@@ -405,7 +405,6 @@ function revealChart(canvasId, loaderId) {
   const loader = document.getElementById(loaderId);
   if (canvas) canvas.style.opacity = "1";
   if (loader) loader.classList.add("hidden");
-  // remove from DOM after fade completes so it can't block clicks
   if (loader) setTimeout(() => loader.remove(), 350);
 }
 
@@ -526,39 +525,72 @@ document.addEventListener("DOMContentLoaded", function () {
 
     if (grouped && grouped.length > 0) {
 
-      let clusterMap = {};
+      const currentId = {{ c.compound_id }};
+
+      // ── Build a map of cluster → { color, regularPoints[], currentPoints[] }
+      // Regular points = those that do NOT contain the current compound.
+      // Current points = those that DO contain the current compound.
+      // This keeps cluster datasets at a fixed, solid color so the legend
+      // is never affected by which compound is being viewed.
+      const clusterMap = {};
+
       grouped.forEach(p => {
-        if (!clusterMap[p.cluster]) clusterMap[p.cluster] = [];
-        clusterMap[p.cluster].push({
-          x: p.x, y: p.y,
+        const cid = p.cluster;
+        if (!clusterMap[cid]) {
+          clusterMap[cid] = { color: p.color, regular: [], current: [] };
+        }
+
+        const isCurrent = p.compounds.some(comp => comp.compound_id === currentId);
+        const point = {
+          x: p.x,
+          y: p.y,
           r: 5 + Math.sqrt(p.count) * 3,
           count: p.count,
-          compounds: p.compounds,
-          color: p.color
-        });
+          compounds: p.compounds
+        };
+
+        if (isCurrent) {
+          clusterMap[cid].current.push(point);
+        } else {
+          clusterMap[cid].regular.push(point);
+        }
       });
 
-      let currentId = {{ c.compound_id }};
-
-      let datasets = Object.keys(clusterMap).map(cid => ({
+      // ── One dataset per cluster (fixed cluster color, no current compound)
+      const clusterDatasets = Object.keys(clusterMap).map(cid => ({
         label: "Cluster " + cid,
-        data: clusterMap[cid].map(p => ({ ...p })),
-        backgroundColor: function(ctx) {
-          let p = ctx.raw;
-          if (!p) return clusterMap[cid][0].color;
-          let isCurrent = p.compounds.some(comp => comp.compound_id === currentId);
-          return isCurrent ? "#FFD700" : clusterMap[cid][0].color;
-        },
-        legendColor: clusterMap[cid][0].color,
-        borderColor: "black",
-        borderWidth: 1
+        data: clusterMap[cid].regular,
+        backgroundColor: clusterMap[cid].color,
+        borderColor: "rgba(0,0,0,0.4)",
+        borderWidth: 1,
+        pointStyle: "circle"
       }));
 
-      let canvas2 = document.getElementById("pcaChart");
+      // ── One dataset for the current compound (always gold/yellow)
+      const currentPoints = [];
+      Object.values(clusterMap).forEach(entry => {
+        entry.current.forEach(p => currentPoints.push(p));
+      });
+
+      const currentDataset = currentPoints.length > 0 ? [{
+        label: "Current Compound",
+        data: currentPoints,
+        backgroundColor: "#FFD700",
+        borderColor: "#000",
+        borderWidth: 2,
+        pointStyle: "star",
+        // Make current compound slightly larger so it stands out
+        data: currentPoints.map(p => ({ ...p, r: Math.max(p.r, 12) }))
+      }] : [];
+
+      // Cluster datasets first, current compound on top
+      const datasets = [...clusterDatasets, ...currentDataset];
+
+      const canvas2 = document.getElementById("pcaChart");
       if (canvas2) {
         new Chart(canvas2.getContext('2d'), {
           type: 'bubble',
-          data: { datasets: datasets },
+          data: { datasets },
           options: {
             parsing: false,
             responsive: true,
@@ -567,11 +599,33 @@ document.addEventListener("DOMContentLoaded", function () {
               onComplete: () => revealChart("pcaChart", "pcaLoader")
             },
             plugins: {
+              legend: {
+                labels: {
+                  // Use the dataset's backgroundColor directly for the legend swatch.
+                  // Because cluster datasets now have a plain string color (not a
+                  // function), Chart.js will always render the correct cluster color.
+                  generateLabels: function(chart) {
+                    return chart.data.datasets.map((ds, i) => ({
+                      text: ds.label,
+                      fillStyle: typeof ds.backgroundColor === "string"
+                        ? ds.backgroundColor
+                        : (Array.isArray(ds.backgroundColor) ? ds.backgroundColor[0] : "#ccc"),
+                      strokeStyle: typeof ds.borderColor === "string" ? ds.borderColor : "#000",
+                      lineWidth: ds.borderWidth || 1,
+                      hidden: !chart.isDatasetVisible(i),
+                      datasetIndex: i
+                    }));
+                  }
+                }
+              },
               tooltip: {
                 callbacks: {
                   label: function(ctx) {
-                    let p = ctx.raw;
-                    return p.count === 1 ? p.compounds[0].name : p.count + " compounds";
+                    const p = ctx.raw;
+                    if (!p) return "";
+                    return p.count === 1
+                      ? p.compounds[0].name
+                      : p.count + " compounds";
                   }
                 }
               }
@@ -596,9 +650,9 @@ document.addEventListener("DOMContentLoaded", function () {
             },
             onClick: function(evt, elements) {
               if (!elements.length) return;
-              let point = elements[0].element.$context.raw;
+              const point = elements[0].element.$context.raw;
               if (point.count === 1) {
-                let comp = point.compounds[0];
+                const comp = point.compounds[0];
                 window.location.href = "/compound/" + comp.compound_id + "/" + comp.slug;
               } else {
                 showCompoundGroup(point);
